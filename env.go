@@ -1,17 +1,21 @@
-// TODO(edoput) HELP=t should print out the usage equivalent of the EnvSet
 package env
 
 import (
-  "encoding"
+	"encoding"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// ErrHelp is the error returned if the HELP or H environment variable is set
+// but no such variable is defined.
+var ErrHelp = errors.New("env: help requested")
 
 // errParse is returned by Set if a variable's value fails to parse,
 // such as with an invalid integer for Int.
@@ -174,9 +178,9 @@ func newFloat64Value(val float64, p *float64) *float64Value {
 }
 
 func (f *float64Value) Set(s string) error {
-  v, err := strconv.ParseFloat(s, 64)
+	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-			return numError(err)
+		return numError(err)
 	}
 	*f = float64Value(v)
 	return nil
@@ -195,9 +199,9 @@ func newDurationValue(val time.Duration, p *time.Duration) *durationValue {
 }
 
 func (d *durationValue) Set(s string) error {
-  v, err := time.ParseDuration(s)
+	v, err := time.ParseDuration(s)
 	if err != nil {
-			return errParse
+		return errParse
 	}
 	*d = durationValue(v)
 	return nil
@@ -208,50 +212,50 @@ func (d *durationValue) Get() any { return time.Duration(*d) }
 func (d *durationValue) String() string { return time.Duration(*d).String() }
 
 // -- textValue
-type textValue struct { p encoding.TextUnmarshaler }
+type textValue struct{ p encoding.TextUnmarshaler }
 
-func newTextValue (val encoding.TextUnmarshaler, p encoding.TextUnmarshaler) textValue {
-		ptrVal := reflect.ValueOf(p)
-		if ptrVal.Kind() != reflect.Ptr {
-				panic("variable value type must be a pointer")
-		}
-		defVal := reflect.ValueOf(val)
-		if defVal.Kind() != reflect.Ptr {
-				defVal = defVal.Elem()
-		}
-		if defVal.Type() != ptrVal.Type().Elem() {
-				panic(fmt.Sprintf("default type value does not match variable type: %v != %v", defVal.Type(), ptrVal.Type().Elem()))
-		}
-		ptrVal.Elem().Set(defVal)
-		return textValue{p}
+func newTextValue(val encoding.TextUnmarshaler, p encoding.TextUnmarshaler) textValue {
+	ptrVal := reflect.ValueOf(p)
+	if ptrVal.Kind() != reflect.Ptr {
+		panic("variable value type must be a pointer")
+	}
+	defVal := reflect.ValueOf(val)
+	if defVal.Kind() != reflect.Ptr {
+		defVal = defVal.Elem()
+	}
+	if defVal.Type() != ptrVal.Type().Elem() {
+		panic(fmt.Sprintf("default type value does not match variable type: %v != %v", defVal.Type(), ptrVal.Type().Elem()))
+	}
+	ptrVal.Elem().Set(defVal)
+	return textValue{p}
 }
 
 func (v textValue) Set(s string) error {
-		return v.p.UnmarshalText([]byte(s))
+	return v.p.UnmarshalText([]byte(s))
 }
 
 func (v textValue) Get() any {
-		return v.p
+	return v.p
 }
 
 func (v textValue) String() string {
-		if m, ok := v.p.(encoding.TextMarshaler); ok {
-				if b, err := m.MarshalText(); err == nil {
-						return string(b)
-				}
+	if m, ok := v.p.(encoding.TextMarshaler); ok {
+		if b, err := m.MarshalText(); err == nil {
+			return string(b)
 		}
-		return ""
+	}
+	return ""
 }
 
 // -- funcValue
-type funcValue func (string) error
+type funcValue func(string) error
 
 func (f funcValue) Set(s string) error { return f(s) }
 
 func (f funcValue) String() string { return "" }
 
 func (f funcValue) Get() any {
-		return nil
+	return nil
 }
 
 // -- boolFuncValue
@@ -317,6 +321,20 @@ type Spec struct {
 	DefValue    string // default value (as text); for description message
 }
 
+// sortVariables returns the variables as a slice in lexicographical sorted order.
+func sortVariables(vars map[string]*Spec) []*Spec {
+	result := make([]*Spec, len(vars))
+	i := 0
+	for _, s := range vars {
+		result[i] = s
+		i++
+	}
+	slices.SortFunc(result, func(a, b *Spec) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return result
+}
+
 // Output returns the destination for description and errro messages. [os.Stderr] is returned if
 // output was not set or was set to nil.
 func (e *EnvSet) Output() io.Writer {
@@ -331,29 +349,168 @@ func (e *EnvSet) Name() string {
 	return e.name
 }
 
+// ErrorHandling returns the error handling behavior of the flag set.
+func (e *EnvSet) ErrorHandling() ErrorHandling {
+	return e.errorHandling
+}
+
+// SetOutput sets the destination for usage and error messages.
+// If output is nil, [os.Stderr] is used.
+func (e *EnvSet) SetOutput(output io.Writer) {
+	e.output = output
+}
+
+// VisitAll visits the variables in lexicographical order, calling fn for each.
+// It visits all, even those not set.
+func (e *EnvSet) VisitAll(fn func(*Spec)) {
+	for _, spec := range sortVariables(e.formal) {
+		fn(spec)
+	}
+}
+
+// VisitAll visits the variables in lexicographical order, calling
+// fn for each. It visits all, even those not set.
+func VisitAll(fn func(*Spec)) {
+	Environment.VisitAll(fn)
+}
+
+// Visit visits the variables in lexicographical order, calling fn for each.
+// It visits only those that have been set.
+func (e *EnvSet) Visit(fn func(*Spec)) {
+	for _, spec := range sortVariables(e.actual) {
+		fn(spec)
+	}
+}
+
+// Visit visits the variables in lexicographical order, calling fn
+// for each. It visits only those that have been set.
+func Visit(fn func(*Spec)) {
+	Environment.Visit(fn)
+}
+
+// isZeroValue determines whether the string represents the zero
+// value for a flag.
+func isZeroValue(spec *Spec, value string) (ok bool, err error) {
+	// Build a zero value of the flag's Value type, and see if the
+	// result of calling its String method equals the value passed in.
+	// This works unless the Value type is itself an interface type.
+	typ := reflect.TypeOf(spec.Value)
+	var z reflect.Value
+	if typ.Kind() == reflect.Pointer {
+		z = reflect.New(typ.Elem())
+	} else {
+		z = reflect.Zero(typ)
+	}
+	// Catch panics calling the String method, which shouldn't prevent the
+	// usage message from being printed, but that we should report to the
+	// user so that they know to fix their code.
+	defer func() {
+		if e := recover(); e != nil {
+			if typ.Kind() == reflect.Pointer {
+				typ = typ.Elem()
+			}
+			err = fmt.Errorf("panic calling String method on zero %v for flag %s: %v", typ, spec.Name, e)
+		}
+	}()
+	return value == z.Interface().(Value).String(), nil
+}
+
+// UnquoteUsage extracts a back-quoted name from the usage
+// string for a flag and returns it and the un-quoted usage.
+// Given "a `name` to show" it returns ("name", "a name to show").
+// If there are no back quotes, the name is an educated guess of the
+// type of the flag's value, or the empty string if the flag is boolean.
+func UnquoteUsage(spec *Spec) (name string, usage string) {
+	// Look for a back-quoted name, but avoid the strings package.
+	usage = spec.Description
+	for i := 0; i < len(usage); i++ {
+		if usage[i] == '`' {
+			for j := i + 1; j < len(usage); j++ {
+				if usage[j] == '`' {
+					name = usage[i+1 : j]
+					usage = usage[:i] + name + usage[j+1:]
+					return name, usage
+				}
+			}
+			break // Only one back quote; use type name.
+		}
+	}
+	// No explicit name, so use type if we can find one.
+	name = "value"
+	switch spec.Value.(type) {
+	case *boolValue:
+		name = "boolean"
+	case *durationValue:
+		name = "duration"
+	case *float64Value:
+		name = "float"
+	case *intValue, *int64Value:
+		name = "int"
+	case *stringValue:
+		name = "string"
+	case *uintValue, *uint64Value:
+		name = "uint"
+	}
+	return
+}
+
 // PrintDefaults print, to standard error unless configured otherwise, the
 // default values of all defined environment variables in the set. See the
 // documentation for the global function PrintDefaults for more information.
 func (e *EnvSet) PrintDefaults() {
+	var isZeroValueErrs []error
+	e.VisitAll(func(spec *Spec) {
+		var b strings.Builder
+		fmt.Fprintf(&b, "  %s", spec.Name)
+		name, usage := UnquoteUsage(spec)
+		if len(name) > 0 {
+			b.WriteString("  ")
+			b.WriteString(name)
+		}
+		b.WriteString("\n    \t")
+		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
+		// Print the default value only if it differs to the zero value
+		// for this flag type.
+		if isZero, err := isZeroValue(spec, spec.DefValue); err != nil {
+			isZeroValueErrs = append(isZeroValueErrs, err)
+		} else if !isZero {
+			if _, ok := spec.Value.(*stringValue); ok {
+				// put quotes on the value
+				fmt.Fprintf(&b, " (default %q)", spec.DefValue)
+			} else {
+				fmt.Fprintf(&b, " (default %v)", spec.DefValue)
+			}
+		}
+		fmt.Fprint(e.Output(), b.String(), "\n")
+	})
+	// if calling string on any zero env.values triggered a panic, print
+	// the messages after the full set of defaults so that the programmer
+	// knows to fix the panic.
+	if errs := isZeroValueErrs; len(errs) > 0 {
+		fmt.Fprintln(e.Output())
+		for _, err := range errs {
+			fmt.Fprintln(e.Output(), err)
+		}
+	}
 }
 
-// PrintDefaults print, to standard error unless configured othersie, the
+// PrintDefaults print, to standard error, unless configured otherwise, the
 // default values of all defined environment variables.
 // For an integer valued flag x, the default output has the form
 //
 // x int
 // description-message-for-x (default: 7)
 func PrintDefaults() {
-		Environment.PrintDefaults()
+	Environment.PrintDefaults()
 }
 
-func (e *EnvSet) defaultUsage() {
-		if e.name == "" {
-				fmt.Fprintf(e.Output(), "Environment:\n")
-		} else {
-				fmt.Fprintf(e.Output(), "Environment of %s:\n", e.name)
-		}
-		e.PrintDefaults()
+func (e *EnvSet) defaultEnvironment() {
+	if e.name == "" {
+		fmt.Fprintf(e.Output(), "Environment:\n")
+	} else {
+		fmt.Fprintf(e.Output(), "Environment of %s:\n", e.name)
+	}
+	e.PrintDefaults()
 }
 
 func (e *EnvSet) BoolVar(p *bool, name string, value bool, description string) {
@@ -568,6 +725,7 @@ func (e *EnvSet) sprintf(format string, a ...any) string {
 
 func (e *EnvSet) failf(format string, a ...any) error {
 	msg := e.sprintf(format, a...)
+	e.usage()
 	return errors.New(msg)
 }
 
@@ -575,7 +733,7 @@ func (e *EnvSet) failf(format string, a ...any) error {
 // or the appropriate default usage function otherwise.
 func (e *EnvSet) usage() {
 	if e.Usage == nil {
-		e.defaultUsage()
+		e.defaultEnvironment()
 	} else {
 		e.Usage()
 	}
@@ -590,6 +748,10 @@ func (e *EnvSet) parseOne() (error, bool) {
 	e.environment = e.environment[1:]
 	// assume there are two strings now, name and value
 	name, value, _ := strings.Cut(s, "=")
+	if name == "HELP" || name == "H" {
+		e.usage()
+		return ErrHelp, false
+	}
 	spec, ok := e.formal[name]
 	if !ok {
 		// saw an environment variable that is not in the list we want
@@ -608,6 +770,7 @@ func (e *EnvSet) parseOne() (error, bool) {
 // Parse parses variables definitions from the environment list.
 // Must be called after all variables in the [EnvSet] are defined
 // and before the variables are accessed by the program.
+// The return value will be [ErrHelp] if HELP or H were set but not defined.
 func (e *EnvSet) Parse(environment []string) error {
 	e.parsed = true
 	e.environment = environment
@@ -623,6 +786,9 @@ func (e *EnvSet) Parse(environment []string) error {
 		case ContinueOnError:
 			return err
 		case ExitOnError:
+			if err == ErrHelp {
+				os.Exit(0)
+			}
 			os.Exit(2)
 		case PanicOnError:
 			panic(err)
