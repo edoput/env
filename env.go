@@ -210,7 +210,7 @@ func (d *durationValue) String() string { return time.Duration(*d).String() }
 // -- textValue
 type textValue struct { p encoding.TextUnmarshaler }
 
-func newTextValue (val encoding.TextMarshaler, p encoding.TextUnmarshaler) textValue {
+func newTextValue (val encoding.TextUnmarshaler, p encoding.TextUnmarshaler) textValue {
 		ptrVal := reflect.ValueOf(p)
 		if ptrVal.Kind() != reflect.Ptr {
 				panic("variable value type must be a pointer")
@@ -265,10 +265,6 @@ func (f boolFuncValue) Get() any { return nil }
 
 // Value is the interface to the dynamic value stored in a Spec.
 // (The default value is represented as a string.)
-//
-// TODO(edoput) is this ok?
-// If a Value has an IsBoolVal() bool method returning true,
-// the environment parser makes `NAME=` equivalent to `NAME=true`.
 //
 // Set is called once, in declaration order, for each variable present.
 // The env package may call the [String] method with a zero-valued receiver,
@@ -466,6 +462,66 @@ func (e *EnvSet) String(name string, value string, description string) *string {
 
 func String(name string, value string, description string) *string {
 	return Environment.String(name, value, description)
+}
+
+func (e *EnvSet) Float64Var(p *float64, name string, value float64, description string) {
+	e.Var(newFloat64Value(value, p), name, description)
+}
+
+func Float64Var(p *float64, name string, value float64, description string) {
+	Environment.Var(newFloat64Value(value, p), name, description)
+}
+
+func (e *EnvSet) Float64(name string, value float64, description string) *float64 {
+	p := new(float64)
+	e.Var(newFloat64Value(value, p), name, description)
+	return p
+}
+
+func Float64(name string, value float64, description string) *float64 {
+	return Environment.Float64(name, value, description)
+}
+
+func (e *EnvSet) DurationVar(p *time.Duration, name string, value time.Duration, description string) {
+	e.Var(newDurationValue(value, p), name, description)
+}
+
+func DurationVar(p *time.Duration, name string, value time.Duration, description string) {
+	Environment.Var(newDurationValue(value, p), name, description)
+}
+
+func (e *EnvSet) Duration(name string, value time.Duration, description string) *time.Duration {
+	p := new(time.Duration)
+	e.Var(newDurationValue(value, p), name, description)
+	return p
+}
+
+func Duration(name string, value time.Duration, description string) *time.Duration {
+	return Environment.Duration(name, value, description)
+}
+
+func (e *EnvSet) TextVar(p encoding.TextUnmarshaler, name string, value encoding.TextUnmarshaler, description string) {
+	e.Var(newTextValue(value, p), name, description)
+}
+
+func TextVar(p encoding.TextUnmarshaler, name string, value encoding.TextUnmarshaler, description string) {
+	Environment.Var(newTextValue(value, p), name, description)
+}
+
+func (e *EnvSet) Func(name, usage string, fn func(string) error) {
+	e.Var(funcValue(fn), name, usage)
+}
+
+func Func(name, usage string, fn func(string) error) {
+	Environment.Func(name, usage, fn)
+}
+
+func (e *EnvSet) BoolFunc(name, usage string, fn func(string) error) {
+	e.Var(boolFuncValue(fn), name, usage)
+}
+
+func BoolFunc(name, usage string, fn func(string) error) {
+	Environment.BoolFunc(name, usage, fn)
 }
 
 // Var defines an environment variable with the specified name and description string. They type and
