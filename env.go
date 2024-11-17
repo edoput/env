@@ -1,3 +1,5 @@
+// TODO(edoput): top-level Usage function missing
+// TODO(edoput): boolValue: IsBoolVar can be removed?
 package env
 
 import (
@@ -314,6 +316,7 @@ type EnvSet struct {
 	undef         map[string]string // variables which didn't exists at the time of set
 }
 
+// A Spec represents the state of an environment variable.
 type Spec struct {
 	Name        string // name as it appears in environment
 	Description string // short description
@@ -349,7 +352,7 @@ func (e *EnvSet) Name() string {
 	return e.name
 }
 
-// ErrorHandling returns the error handling behavior of the flag set.
+// ErrorHandling returns the error handling behavior of the variable set.
 func (e *EnvSet) ErrorHandling() ErrorHandling {
 	return e.errorHandling
 }
@@ -389,9 +392,9 @@ func Visit(fn func(*Spec)) {
 }
 
 // isZeroValue determines whether the string represents the zero
-// value for a flag.
+// value for a variable.
 func isZeroValue(spec *Spec, value string) (ok bool, err error) {
-	// Build a zero value of the flag's Value type, and see if the
+	// Build a zero value of the variable's Value type, and see if the
 	// result of calling its String method equals the value passed in.
 	// This works unless the Value type is itself an interface type.
 	typ := reflect.TypeOf(spec.Value)
@@ -409,27 +412,27 @@ func isZeroValue(spec *Spec, value string) (ok bool, err error) {
 			if typ.Kind() == reflect.Pointer {
 				typ = typ.Elem()
 			}
-			err = fmt.Errorf("panic calling String method on zero %v for flag %s: %v", typ, spec.Name, e)
+			err = fmt.Errorf("panic calling String method on zero %v for variable %s: %v", typ, spec.Name, e)
 		}
 	}()
 	return value == z.Interface().(Value).String(), nil
 }
 
 // UnquoteUsage extracts a back-quoted name from the usage
-// string for a flag and returns it and the un-quoted usage.
+// string for an environment variable and returns it and the un-quoted usage.
 // Given "a `name` to show" it returns ("name", "a name to show").
 // If there are no back quotes, the name is an educated guess of the
-// type of the flag's value, or the empty string if the flag is boolean.
-func UnquoteUsage(spec *Spec) (name string, usage string) {
+// type of the variables's value.
+func UnquoteUsage(spec *Spec) (name string, description string) {
 	// Look for a back-quoted name, but avoid the strings package.
-	usage = spec.Description
-	for i := 0; i < len(usage); i++ {
-		if usage[i] == '`' {
-			for j := i + 1; j < len(usage); j++ {
-				if usage[j] == '`' {
-					name = usage[i+1 : j]
-					usage = usage[:i] + name + usage[j+1:]
-					return name, usage
+	description = spec.Description
+	for i := 0; i < len(description); i++ {
+		if description[i] == '`' {
+			for j := i + 1; j < len(description); j++ {
+				if description[j] == '`' {
+					name = description[i+1 : j]
+					description = description[:i] + name + description[j+1:]
+					return name, description
 				}
 			}
 			break // Only one back quote; use type name.
@@ -470,7 +473,7 @@ func (e *EnvSet) PrintDefaults() {
 		b.WriteString("\n    \t")
 		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
 		// Print the default value only if it differs to the zero value
-		// for this flag type.
+		// for this variable type.
 		if isZero, err := isZeroValue(spec, spec.DefValue); err != nil {
 			isZeroValueErrs = append(isZeroValueErrs, err)
 		} else if !isZero {
@@ -496,14 +499,31 @@ func (e *EnvSet) PrintDefaults() {
 
 // PrintDefaults print, to standard error, unless configured otherwise, the
 // default values of all defined environment variables.
-// For an integer valued flag x, the default output has the form
+// For an integer valued variable x, the default output has the form
 //
-// x int
-// description-message-for-x (default: 7)
+// x  int
+//     description-message-for-x (default: 7)
+//
+// The description message will appear on a separate line.
+// The parenthetical default is omitted if the default is the zero value for
+// the type. The listed type, here int, can be changed by placing a back-quoted
+// name in the variable's description string; the first such item in the message is taken
+// to be a parameter name to show in the message and the back quotes are
+// stripped from the message when displayed. For instance, given
+//
+//	env.String("I", "", "search `directory` for include files")
+//
+// the output will be
+//
+// I  directory
+//		search directory for include files.
+//
+// To change the destination for variable messages, call [Environment].SetOutput.
 func PrintDefaults() {
 	Environment.PrintDefaults()
 }
 
+// defaultEnvironment is the default function to print a usage message.
 func (e *EnvSet) defaultEnvironment() {
 	if e.name == "" {
 		fmt.Fprintf(e.Output(), "Environment:\n")
@@ -513,179 +533,273 @@ func (e *EnvSet) defaultEnvironment() {
 	e.PrintDefaults()
 }
 
+// BoolVar defines a bool environment variable with specified name, default value, and description string.
+// The argument p points to a bool variable in which to store the value of the
+// environment variable.
 func (e *EnvSet) BoolVar(p *bool, name string, value bool, description string) {
 	e.Var(newBoolValue(value, p), name, description)
 }
 
+// BoolVar defines a bool environment variable with specified name, default value, and description string.
+// The argument p points to a bool variable in which to store the value of
+// the environment variable.
 func BoolVar(p *bool, name string, value bool, description string) {
 	Environment.Var(newBoolValue(value, p), name, description)
 }
 
+// Bool defines a bool environment variable with specified name, default value, and description string.
+// The return value is the address of a bool variable that stores the value of
+// the environment variable.
 func (e *EnvSet) Bool(name string, value bool, description string) *bool {
 	p := new(bool)
 	e.Var(newBoolValue(value, p), name, description)
 	return p
 }
 
+// Bool defines a bool environment variable with specified name, default value, and description string.
+// The return value is the address of a bool variable that stores the value of the environment variable.
 func Bool(name string, value bool, description string) *bool {
 	return Environment.Bool(name, value, description)
 }
 
+// IntVar defines an int environment variable with specified name, default value, and description string.
+// The argument p points to an int variable in which to store the value of the environment variable.
 func (e *EnvSet) IntVar(p *int, name string, value int, description string) {
 	e.Var(newIntValue(value, p), name, description)
 }
 
+// IntVar defines an int environment variable with specified name, default value, and description string.
+// The argument p points to an int variable in which to store the value of the variable.
 func IntVar(p *int, name string, value int, description string) {
 	Environment.Var(newIntValue(value, p), name, description)
 }
 
+// Int defines an int environment variable with specified name, default value, and description string.
+// The return value is the address of an int variable that stores the value of the variable.
 func (e *EnvSet) Int(name string, value int, description string) *int {
 	p := new(int)
 	e.Var(newIntValue(value, p), name, description)
 	return p
 }
 
+// Int defines an int environment variable with specified name, default value, and description string.
+// The return value is the address of an int variable that stores the value of the variable.
 func Int(name string, value int, description string) *int {
 	return Environment.Int(name, value, description)
 }
 
+// Int64Var defines an int64 environment variable with specified name, default value, and description string.
+// The argument p points to an int64 variable in which to store the value of the variable.
 func (e *EnvSet) Int64Var(p *int64, name string, value int64, description string) {
 	e.Var(newInt64Value(value, p), name, description)
 }
 
+// Int64Var defines an int64 environment variable with specified name, default value, and description string.
+// The argument p points to an int64 variable in which to store the value of the variable.
 func Int64Var(p *int64, name string, value int64, description string) {
 	Environment.Var(newInt64Value(value, p), name, description)
 }
 
+// Int64 defines an int64 environment variable with specified name, default value, and description string.
+// The return value is the address of an int64 variable that stores the value of the variable.
 func (e *EnvSet) Int64(name string, value int64, description string) *int64 {
 	p := new(int64)
 	e.Var(newInt64Value(value, p), name, description)
 	return p
 }
 
+// Int64 defines an int64 environment variable with specified name, default value, and description string.
+// The return value is the address of an int64 variable that stores the value of the variable.
 func Int64(name string, value int64, description string) *int64 {
 	return Environment.Int64(name, value, description)
 }
 
+// UintVar defines a uint environment variable with specified name, default value, and description string.
+// The argument p points to a uint variable in which to store the value of the variable.
 func (e *EnvSet) UintVar(p *uint, name string, value uint, description string) {
 	e.Var(newUintValue(value, p), name, description)
 }
 
+// UintVar defines a uint environment variable with specified name, default value, and description string.
+// The argument p points to a uint variable in which to store the value of the variable.
 func UintVar(p *uint, name string, value uint, description string) {
 	Environment.Var(newUintValue(value, p), name, description)
 }
 
+// Uint defines a uint environment variable with specified name, default value, and description string.
+// The return value is the address of a uint variable that stores the value of the variable.
 func (e *EnvSet) Uint(name string, value uint, description string) *uint {
 	p := new(uint)
 	e.Var(newUintValue(value, p), name, description)
 	return p
 }
 
+// Uint defines a uint environment variable with specified name, default value, and description string.
+// The return value is the address of a uint variable that stores the value of the variable.
 func Uint(name string, value uint, description string) *uint {
 	return Environment.Uint(name, value, description)
 }
 
+// Uint64Var defines a uint64 environment variable with specified name, default value, and description string.
+// The argument p points to a uint64 variable in which to store the value of the variable.
 func (e *EnvSet) Uint64Var(p *uint64, name string, value uint64, description string) {
 	e.Var(newUint64Value(value, p), name, description)
 }
 
+// Uint64Var defines a uint64 environment variable with specified name, default value, and description string.
+// The argument p points to a uint64 variable in which to store the value of the variable.
 func Uint64Var(p *uint64, name string, value uint64, description string) {
 	Environment.Var(newUint64Value(value, p), name, description)
 }
 
+// Uint64 defines a uint64 environment variable with specified name, default value, and description string.
+// The return value is the address of a uint64 variable that stores the value of the variable.
 func (e *EnvSet) Uint64(name string, value uint64, description string) *uint64 {
 	p := new(uint64)
 	e.Var(newUint64Value(value, p), name, description)
 	return p
 }
 
+
+// Uint64 defines a uint64 environment variable with specified name, default value, and description string.
+// The return value is the address of a uint64 variable that stores the value of the variable.
 func Uint64(name string, value uint64, description string) *uint64 {
 	return Environment.Uint64(name, value, description)
 }
 
+// StringVar defines a string environment variable with specified name, default value, and description string.
+// The argument p points to a string variable in which to store the value of the variable.
 func (e *EnvSet) StringVar(p *string, name string, value string, description string) {
 	e.Var(newStringValue(value, p), name, description)
 }
 
+// StringVar defines a string environment variable with specified name, default value, and description string.
+// The argument p points to a string variable in which to store the value of the variable.
 func StringVar(p *string, name string, value string, description string) {
 	Environment.Var(newStringValue(value, p), name, description)
 }
 
+// String defines a string environment variable with specified name, default value, and description string.
+// The return value is the address of a string variable that stores the value of the variable.
 func (e *EnvSet) String(name string, value string, description string) *string {
 	p := new(string)
 	e.Var(newStringValue(value, p), name, description)
 	return p
 }
 
+// String defines a string environment variable with specified name, default value, and description string.
+// The return value is the address of a string variable that stores the value of the variable.
 func String(name string, value string, description string) *string {
 	return Environment.String(name, value, description)
 }
 
+// Float64Var defines a float64 environment variable with specified name, default value, and description string.
+// The argument p points to a float64 variable in which to store the value of the variable.
 func (e *EnvSet) Float64Var(p *float64, name string, value float64, description string) {
 	e.Var(newFloat64Value(value, p), name, description)
 }
 
+// Float64Var defines a float64 environment variable with specified name, default value, and description string.
+// The argument p points to a float64 variable in which to store the value of the variable.
 func Float64Var(p *float64, name string, value float64, description string) {
 	Environment.Var(newFloat64Value(value, p), name, description)
 }
 
+// Float64 defines a float64 environment variable with specified name, default value, and description string.
+// The return value is the address of a float64 variable that stores the value of the variable.
 func (e *EnvSet) Float64(name string, value float64, description string) *float64 {
 	p := new(float64)
 	e.Var(newFloat64Value(value, p), name, description)
 	return p
 }
 
+// Float64 defines a float64 environment variable with specified name, default value, and description string.
+// The return value is the address of a float64 variable that stores the value of the variable.
 func Float64(name string, value float64, description string) *float64 {
 	return Environment.Float64(name, value, description)
 }
 
+// DurationVar defines a time.Duration environment variable with specified name, default value, and description string.
+// The argument p points to a time.Duration variable in which to store the value of the variable.
+// The environment variable accepts a value acceptable to time.ParseDuration.
 func (e *EnvSet) DurationVar(p *time.Duration, name string, value time.Duration, description string) {
 	e.Var(newDurationValue(value, p), name, description)
 }
 
+// DurationVar defines a time.Duration environment variable with specified name, default value, and description string.
+// The argument p points to a time.Duration variable in which to store the value of the variable.
+// The environment variable accepts a value acceptable to time.ParseDuration.
 func DurationVar(p *time.Duration, name string, value time.Duration, description string) {
 	Environment.Var(newDurationValue(value, p), name, description)
 }
 
+// Duration defines a time.Duration environment variable with specified name, default value, and description string.
+// The return value is the address of a time.Duration variable that stores the value of the variable.
+// The environment variable accepts a value acceptable to time.ParseDuration.
 func (e *EnvSet) Duration(name string, value time.Duration, description string) *time.Duration {
 	p := new(time.Duration)
 	e.Var(newDurationValue(value, p), name, description)
 	return p
 }
 
+// Duration defines a time.Duration environment variable with specified name, default value, and description string.
+// The return value is the address of a time.Duration variable that stores the value of the variable.
+// The environment variable accepts a value acceptable to time.ParseDuration.
 func Duration(name string, value time.Duration, description string) *time.Duration {
 	return Environment.Duration(name, value, description)
 }
 
+// TextVar defines a environment variable with a specified name, default value, and description string.
+// The argument p must be a pointer to a variable that will hold the value
+// of the variable, and p must implement encoding.TextUnmarshaler.
+// If the environment variable is used, the environment variable's value will be passed to p's UnmarshalText method.
+// The type of the default value must be the same as the type of p.
 func (e *EnvSet) TextVar(p encoding.TextUnmarshaler, name string, value encoding.TextUnmarshaler, description string) {
 	e.Var(newTextValue(value, p), name, description)
 }
 
+// TextVar defines an environment variable with a specified name, default value, and description string.
+// The argument p must be a pointer to a variable that will hold the value
+// of the variable, and p must implement encoding.TextUnmarshaler.
+// If the environment variable is used, the environment variable's value will be passed to p's UnmarshalText method.
+// The type of the default value must be the same as the type of p.
 func TextVar(p encoding.TextUnmarshaler, name string, value encoding.TextUnmarshaler, description string) {
 	Environment.Var(newTextValue(value, p), name, description)
 }
 
-func (e *EnvSet) Func(name, usage string, fn func(string) error) {
-	e.Var(funcValue(fn), name, usage)
+// Func defines an environment variable with the specified name and description string.
+// Each time the variable name is seen, fn is called with the associated value.
+// If fn returns a non-nil error, it will be treated as a parsing error.
+func (e *EnvSet) Func(name, description string, fn func(string) error) {
+	e.Var(funcValue(fn), name, description)
 }
 
-func Func(name, usage string, fn func(string) error) {
-	Environment.Func(name, usage, fn)
+// Func defines an environment variable with the specified name and description string.
+// Each time the variable name is seen, fn is called with the associated value.
+// If fn returns a non-nil error, it will be treated as a parsing error.
+func Func(name, description string, fn func(string) error) {
+	Environment.Func(name, description, fn)
 }
 
-func (e *EnvSet) BoolFunc(name, usage string, fn func(string) error) {
-	e.Var(boolFuncValue(fn), name, usage)
+// BoolFunc defines an environment variable with the specified name and description string without requiring values.
+// Each time the variable name is seen, fn is called with the associated value.
+// If fn returns a non-nil error, it will be treated as a parsing error.
+func (e *EnvSet) BoolFunc(name, description string, fn func(string) error) {
+	e.Var(boolFuncValue(fn), name, description)
 }
 
-func BoolFunc(name, usage string, fn func(string) error) {
-	Environment.BoolFunc(name, usage, fn)
+// BoolFunc defines an environment variable with the specified name and description string without requiring values.
+// Each time the variable name is seen, fn is called with the associated value.
+// If fn returns a non-nil error, it will be treated as a parsing error.
+func BoolFunc(name, description string, fn func(string) error) {
+	Environment.BoolFunc(name, description, fn)
 }
 
 // Var defines an environment variable with the specified name and description string. They type and
 // value of the variable are represented by the first argument, of type [Value], which typically holds
-// a user-defined implementation of [Value]. For instance, the caller could create a flag that turns
-// a comma-separated string into a slice of strings by giving the slice the methods of [Value]; in
-// particular, [Set] would decompose the comma-separated string into the slice.
+// a user-defined implementation of [Value]. For instance, the caller could create an environment
+// variable that turns a comma-separated string into a slice of strings by giving the slice the
+// methods of [Value]; in particular, [Set] would decompose the comma-separated string into the slice.
 func (e *EnvSet) Var(value Value, name string, description string) {
 	if strings.Contains(name, "=") {
 		panic(e.sprintf("variable %q contains =", name))
@@ -712,6 +826,12 @@ func (e *EnvSet) Var(value Value, name string, description string) {
 	e.formal[name] = v
 }
 
+// Var defines an environment variable with the specified name and description string. The type and
+// value of the variable are represented by the first argument, of type [Value], which
+// typically holds a user-defined implementation of [Value]. For instance, the
+// caller could create an environment variable that turns a comma-separated string into a slice
+// of strings by giving the slice the methods of [Value]; in particular, [Set] would
+// decompose the comma-separated string into the slice.
 func Var(value Value, name string, description string) {
 	Environment.Var(value, name, description)
 }
@@ -723,6 +843,8 @@ func (e *EnvSet) sprintf(format string, a ...any) string {
 	return msg
 }
 
+// failf prints to standard error a formatted error and usage message and
+// returns the error.
 func (e *EnvSet) failf(format string, a ...any) error {
 	msg := e.sprintf(format, a...)
 	e.usage()
@@ -800,7 +922,6 @@ func (e *EnvSet) Parse(environment []string) error {
 // Parse parses the environment values from [os.Environ]. Must be called
 // after all variables are defined and before variables are accessed by the program.
 func Parse() {
-	// TODO(edoput) ignore errors?
 	Environment.Parse(os.Environ())
 }
 
@@ -809,6 +930,9 @@ func Parse() {
 // methods of Environment.
 var Environment = NewEnvSet(os.Args[0], ExitOnError)
 
+// NewEnvSet returns a new, empty environment variables set with the specified name and
+// error handling property. If the name is not empty, it will be printed
+// in the default message and in error messages.
 func NewEnvSet(name string, errorHandling ErrorHandling) *EnvSet {
 	e := &EnvSet{
 		name:          name,
@@ -817,6 +941,9 @@ func NewEnvSet(name string, errorHandling ErrorHandling) *EnvSet {
 	return e
 }
 
+// Init sets the name and error handling property for an environment variable set.
+// By default, the zero [EnvSet] uses an empty name and the
+// [ContinueOnError] error handling policy.
 func (e *EnvSet) Init(name string, errorHandling ErrorHandling) {
 	e.name = name
 	e.errorHandling = errorHandling
