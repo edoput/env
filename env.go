@@ -1,3 +1,8 @@
+// Copyright 2024, Edoardo Putti
+// Portions Copyright (c) 2009 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 // TODO(edoput): top-level Usage function missing
 // TODO(edoput): boolValue: IsBoolVar can be removed?
 package env
