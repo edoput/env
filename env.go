@@ -508,7 +508,8 @@ func (e *EnvSet) PrintDefaults() {
 // For an integer valued variable x, the default output has the form
 //
 // x  int
-//     description-message-for-x (default: 7)
+//
+//	description-message-for-x (default: 7)
 //
 // The description message will appear on a separate line.
 // The parenthetical default is omitted if the default is the zero value for
@@ -522,7 +523,8 @@ func (e *EnvSet) PrintDefaults() {
 // the output will be
 //
 // I  directory
-//		search directory for include files.
+//
+//	search directory for include files.
 //
 // To change the destination for variable messages, call [Environment].SetOutput.
 func PrintDefaults() {
@@ -665,7 +667,6 @@ func (e *EnvSet) Uint64(name string, value uint64, description string) *uint64 {
 	e.Var(newUint64Value(value, p), name, description)
 	return p
 }
-
 
 // Uint64 defines a uint64 environment variable with specified name, default value, and description string.
 // The return value is the address of a uint64 variable that stores the value of the variable.
@@ -959,20 +960,20 @@ func (e *EnvSet) Init(name string, errorHandling ErrorHandling) {
 // Error messages when parsing command line flags will also print out
 // the description of the environment variables expected.
 func Link(f *flag.FlagSet, e *EnvSet) {
-		flagSetUsage := f.Usage
-		if flagSetUsage == nil {
-				flagSetUsage = f.PrintDefaults
-		}
-		f.Usage = func() {
-				flagSetUsage()
-				e.usage()
-		}
+	flagSetUsage := f.Usage
+	if flagSetUsage == nil {
+		flagSetUsage = f.PrintDefaults
+	}
+	f.Usage = func() {
+		flagSetUsage()
+		e.usage()
+	}
 }
 
 func init() {
-		// Take over the default error reporting behavior of the flag package.
-		// By default the flag package will call the flag.CommandLine.Usage
-		// function when an error is encountered while parsing command line flags.
+	// Take over the default error reporting behavior of the flag package.
+	// By default the flag package will call the flag.CommandLine.Usage
+	// function when an error is encountered while parsing command line flags.
 
-		Link(flag.CommandLine, Environment)
+	Link(flag.CommandLine, Environment)
 }
