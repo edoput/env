@@ -10,6 +10,7 @@ package env
 import (
 	"encoding"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -952,4 +953,26 @@ func NewEnvSet(name string, errorHandling ErrorHandling) *EnvSet {
 func (e *EnvSet) Init(name string, errorHandling ErrorHandling) {
 	e.name = name
 	e.errorHandling = errorHandling
+}
+
+// Link associates EnvSet e to FlagSet f.
+// Error messages when parsing command line flags will also print out
+// the description of the environment variables expected.
+func Link(f *flag.FlagSet, e *EnvSet) {
+		flagSetUsage := f.Usage
+		if flagSetUsage == nil {
+				flagSetUsage = f.PrintDefaults
+		}
+		f.Usage = func() {
+				flagSetUsage()
+				e.usage()
+		}
+}
+
+func init() {
+		// Take over the default error reporting behavior of the flag package.
+		// By default the flag package will call the flag.CommandLine.Usage
+		// function when an error is encountered while parsing command line flags.
+
+		Link(flag.CommandLine, Environment)
 }
